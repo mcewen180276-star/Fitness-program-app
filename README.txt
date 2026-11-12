@@ -11,3 +11,5 @@ Limitations: generated mini-app is a standalone HTML file with programme selecti
 V2: A4 professional print/PDF layout, resistance weights and cardio metrics in programme creator, per-set/round workout recording in main app and mini-app, demo links throughout. Existing rebuilt V1 IndexedDB is retained. Mini-app records stay on client device and can be exported as JSON.
 
 V3 restored 475 distinct curated/expanded legacy exercises from old v63 source, with descriptions and equipment. Existing rebuilt user exercises remain untouched. Demo links can be added/edited; 'Find demonstration' opens search results rather than falsely claiming a verified demo. New inline add/edit form. Equipment management retained.
+
+V4: 893 total expanded catalogue entries, with tailored technique explanations. Collapsible exercise cards with inline edit forms, demonstration links and search. Existing user-added exercise data preserved; default generic explanations improved on import.
