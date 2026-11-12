@@ -19,3 +19,11 @@ V5: 22 cardio machines, 34 cardio workout methods each (748 machine-method entri
 V6: Exercise Database filters by muscle/body part, equipment, and cardio/resistance/core/mobility category. Programme Creator exercises are collapsible and expand to reveal prescription, demonstration, technique and reordering. Swap exercise opens an in-page searchable/filterable panel with equipment, muscle, category and text filters, instead of prompt boxes. No database schema changes; existing saved data retained.
 
 V7: Programme structure now generates a fresh exercise-filled draft rather than retaining old exercises. Seniors/Active Ageing prioritises supported, balance, mobility and lower-impact choices. Regenerate respects per-day styles. Confirm before replacing nonempty drafts; previous draft autosaved, named approved programmes never modified.
+
+V8 Programme Creator redesign:
+- Load any saved named programme for editing from Programme Creator.
+- Generate fresh drafts from workout type, 1-7 days, exercise count, session time, sets, rest, cardio inclusion and cardio method.
+- Each day has its own training style. Apply style to this day regenerates only that day's exercises.
+- Save as new creates a separate programme. Save changes updates only the explicitly loaded programme.
+- Existing exercise database, workout tracking, mini-app, and printouts remain.
+- Existing V7 data stays in the same IndexedDB store. Back up before updating.
