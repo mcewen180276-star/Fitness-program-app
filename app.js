@@ -105,7 +105,96 @@ const optionList=(arr,val)=>arr.map(x=>`<option value="${esc(x)}" ${x===val?'sel
 const addEquipmentOptions=()=>db.equipment.filter(e=>!e.hidden).map(e=>e.name).sort((a,b)=>a.localeCompare(b));
 const muscleOptions=()=>[...new Set(db.exercises.map(e=>e.muscle).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 function refreshDayExerciseChoices(di){const eq=$('addEq'+di)?.value||'',mus=$('addMus'+di)?.value||'',term=($('addSearch'+di)?.value||'').toLowerCase();const sel=$('addToDay'+di);if(!sel)return;const matches=db.exercises.filter(e=>(!eq||e.equipment===eq)&&(!mus||e.muscle===mus)&&(!term||`${e.name} ${e.type} ${e.equipment}`.toLowerCase().includes(term)));sel.innerHTML=opt(matches.slice(0,350).map(e=>({id:e.id,name:`${e.name} · ${e.equipment}`})),'',`Choose exercise (${matches.length} matches)`)}
-function viewCreator(){const d=ensureDraft();return `<h2>Programme Creator</h2><div class="panel"><div class="row">${clientPick()}<button data-action="newDraft" class="primary" ${!clientId?'disabled':''}>New programme draft</button><button data-action="loadApproved" ${!clientId?'disabled':''}>Load approved programme</button></div><p class="muted">One working draft per client, with private autosaves. Approve a named, dated copy only when ready.</p></div>${!d?'<p>Select a client first.</p>':`<div class="panel"><h3>Programme structure</h3><div class="grid"><label>Programme type<select id="programmeStructure">${optionList(workoutStructures,d.structure||'Full Body')}</select></label><label>Number of training days<select id="programmeDays">${Array.from({length:7},(_,i)=>`<option value="${i+1}" ${(d.days.length===i+1)?'selected':''}>${i+1} day(s)</option>`).join('')}</select></label></div><button data-action="applyStructure" class="primary">Apply structure to days</button><p class="tiny muted">You can choose a different training style for every day and add cardio to any day.</p></div><div class="panel"><h3>Programme guidance</h3><p>${esc(generatorText())}</p><button data-action="suggest" class="primary">Generate starter programme</button><p class="tiny muted">Suggestions use goals, experience, available days and reported limitations. Review and adapt every exercise before use.</p></div>${dayEditor(d)}<div class="panel"><button data-action="saveApproved" class="primary">Save named & dated approved programme</button></div>`}`}
+// Build an entirely new unsaved draft. Approved programmes are never modified here.
+function programmePattern(structure,days){
+ const s=structure.toLowerCase();let pattern;
+ if(s.includes('seniors')||s.includes('active ageing'))pattern=['Seniors / Active Ageing','Balance','Seniors / Active Ageing','Mobility'];
+ else if(s.includes('push / pull / legs'))pattern=['Push','Pull','Legs'];
+ else if(s.includes('upper / lower'))pattern=['Upper Body','Lower Body'];
+ else if(s.includes('cardio + core'))pattern=['Cardio','Core'];
+ else if(s.includes('cardio + resistance')||s.includes('strength + cardio'))pattern=['Cardio + Strength','Strength'];
+ else if(s.includes('split'))pattern=['Chest / Triceps','Back / Biceps','Legs','Shoulders / Core','Full Body'];
+ else if(s.includes('recovery'))pattern=['Recovery'];
+ else pattern=[structure];
+ return Array.from({length:days},(_,i)=>({name:`Day ${i+1} — ${pattern[i%pattern.length]}`,style:pattern[i%pattern.length],exercises:[]}));
+}
+function programmePool(style,structure){
+ const tag=(style+' '+structure).toLowerCase();
+ const seniors=/senior|active ageing|prime mover/.test(tag);
+ const cardio=/cardio|interval|hiit|steady|aerobic|endurance/.test(style.toLowerCase());
+ const balance=/balance/.test(style.toLowerCase());
+ const mobility=/mobility|flexibility|yoga|pilates|recovery/.test(style.toLowerCase());
+ const core=/core/.test(style.toLowerCase());
+ const upper=/upper|push|pull|chest|back|shoulder|biceps|triceps/.test(style.toLowerCase());
+ const lower=/lower|legs/.test(style.toLowerCase());
+ const desired=style.toLowerCase();
+ const avoidSenior=/jump|burpee|sprint|snatch|clean|slam|plyometric|box jump|heavy|tabata|hiit|power|explosive/i;
+ const equipment=db.equipment.filter(e=>!e.hidden&&Number(e.quantity)>0).map(e=>e.name);
+ const eligible=db.exercises.filter(e=>equipment.includes(e.equipment)||e.equipment==='Bodyweight');
+ const pool=eligible.length?eligible:db.exercises;
+ const score=e=>{
+  const name=e.name.toLowerCase(),mus=(e.muscle||'').toLowerCase(),type=(e.type||'').toLowerCase(),equip=(e.equipment||'').toLowerCase();
+  if(seniors&&avoidSenior.test(name))return -999;
+  let v=0;
+  if(seniors){
+   if(/chair|seated|sit.to.stand|heel|toe|step|walk|balance|supported|wall|gentle|band|mobility|march/.test(name))v+=35;
+   if(/bodyweight|resistance band|step|chair/.test(equip))v+=10;
+   if(/balance|mobility|functional|strength|cardio/.test(type))v+=6;
+  }
+  if(cardio){if(cardioExercise(e))v+=30;else v-=8;}
+  else if(balance){if(/balance/.test(mus+' '+type+' '+name))v+=35;else v-=5;}
+  else if(mobility){if(/mobility|yoga|pilates|flexibility|stretch/.test(type+' '+name))v+=35;else v-=5;}
+  else if(core){if(/core|abs|abdominal/.test(mus+' '+type))v+=32;else v-=5;}
+  else if(upper){if(/chest|back|shoulder|arms|biceps|triceps/.test(mus))v+=25;else v-=8;}
+  else if(lower){if(/leg|glute|hamstring|quadricep|calf|posterior/.test(mus))v+=25;else v-=8;}
+  else if(/strength|hypertrophy|muscle|power|resistance/.test(desired)){if(/strength|resistance|power/.test(type))v+=22;}
+  else if(/functional|circuit/.test(desired)){if(/functional|strength|cardio/.test(type))v+=15;}
+  else {if(/strength|resistance|functional|core/.test(type))v+=12;}
+  if(/full body/.test(desired)&&/full body/.test(mus))v+=8;
+  if(/bodyweight|dumbbell|resistance band/.test(equip))v+=4;
+  if(/advanced/.test((e.level||'').toLowerCase())&&seniors)v-=15;
+  return v;
+ };
+ return pool.map(e=>({e,score:score(e)})).filter(x=>x.score>-100).sort((a,b)=>b.score-a.score||a.e.name.localeCompare(b.e.name));
+}
+function buildStarterDraft(structure,dayCount,existingStyles){
+ const days=programmePattern(structure,dayCount),used=new Set();
+ for(let i=0;i<days.length;i++){
+  const day=days[i];if(existingStyles?.[i])day.style=existingStyles[i];
+  const senior=/senior|active ageing|prime mover/i.test(structure+' '+day.style);
+  const cardio=/cardio|interval|hiit|steady|aerobic/i.test(day.style);
+  const pool=programmePool(day.style,structure);
+  const limit=cardio?4:senior?6:6;
+  const picked=[];const muscleCounts={};
+  for(const {e,score} of pool){
+   if(picked.length>=limit)break;
+   if(used.has(e.id))continue;
+   const m=e.muscle||'Other';if((muscleCounts[m]||0)>=2&&!cardio)continue;
+   if(score<0&&!senior&&!cardio)continue;
+   picked.push(e);used.add(e.id);muscleCounts[m]=(muscleCounts[m]||0)+1;
+  }
+  // A small database or uncommon style must still produce a usable draft.
+  if(picked.length<3){for(const {e} of pool){if(picked.length>=Math.min(limit,5))break;if(!picked.some(x=>x.id===e.id)){picked.push(e);used.add(e.id)}}}
+  // When the catalogue is exhausted across days, reuse sensible exercises rather than leave a day empty.
+  if(!picked.length){for(const {e} of pool.slice(0,limit))picked.push(e)}
+  // Seniors programme always includes balance/mobility and optional easy cardio.
+  if(senior&&picked.length){
+   const balance=db.exercises.find(e=>/heel.to.toe walk|single leg stand|standing balance|seated march|chair squat|sit.to.stand/i.test(e.name));
+   if(balance&&!picked.some(e=>e.id===balance.id))picked[picked.length-1]=balance;
+  }
+  day.exercises=picked.map(e=>({...clone(e),sets:cardioExercise(e)?1:senior?2:3,reps:cardioExercise(e)?'':senior?'8–10':'8–12',weight:'',rest:cardioExercise(e)?0:senior?60:75,cardioMethod:cardioExercise(e)?senior?'Easy Recovery':cardio?'Steady State':'Aerobic Base':''}));
+ }
+ return {structure,days,generatedAt:new Date().toISOString()};
+}
+function regenerateDraft(structure,dayCount,keepDayStyles=false){
+ if(!clientId)return;
+ const old=ensureDraft();
+ if(old.days.some(d=>d.exercises.length)&&!confirm('Generate a NEW draft for this client? The current working draft will be replaced, but all saved named programmes will remain unchanged.'))return false;
+ draftAuto();
+ db.drafts[clientId]=buildStarterDraft(structure,dayCount,keepDayStyles?old.days.map(d=>d.style):null);
+ editDay=0;programmeId='';save();render();return true;
+}
+function viewCreator(){const d=ensureDraft();return `<h2>Programme Creator</h2><div class="panel"><div class="row">${clientPick()}<button data-action="newDraft" class="primary" ${!clientId?'disabled':''}>New programme draft</button><button data-action="loadApproved" ${!clientId?'disabled':''}>Load approved programme</button></div><p class="muted">Working drafts are separate from saved programmes. Generating replaces only the working draft; saved named programmes are never overwritten.</p></div>${!d?'<p>Select a client first.</p>':`<div class="panel"><h3>Programme structure</h3><div class="grid"><label>Programme type<select id="programmeStructure">${optionList(workoutStructures,d.structure||'Full Body')}</select></label><label>Number of training days<select id="programmeDays">${Array.from({length:7},(_,i)=>`<option value="${i+1}" ${(d.days.length===i+1)?'selected':''}>${i+1} day(s)</option>`).join('')}</select></label></div><button data-action="applyStructure" class="primary">Generate fresh programme from structure</button><p class="tiny muted">You can choose a different training style for every day and add cardio to any day.</p></div><div class="panel"><h3>Programme guidance</h3><p>${esc(generatorText())}</p><button data-action="suggest" class="primary">Regenerate exercises for selected days</button><p class="tiny muted">Suggestions use goals, experience, available days and reported limitations. Review and adapt every exercise before use.</p></div>${dayEditor(d)}<div class="panel"><button data-action="saveApproved" class="primary">Save named & dated approved programme</button></div>`}`}
 function generatorText(){const c=client();if(!c)return 'Select a client.';return `Goals: ${c.goals||'not supplied'}. Experience: ${c.experience||'not supplied'}. Available days: ${c.days||'not supplied'}. Health considerations: ${(c.conditions||[]).join(', ')||'not supplied'}. Avoid assuming a condition automatically prohibits exercise; discuss individual needs and obtain appropriate advice when indicated.`}
 const cardioExercise=e=>e.type==='Cardio'||e.muscle==='Cardio'||/treadmill|bike|rowing|cross trainer|stair climber|ergometer/i.test(e.name);
 const metricFields=e=>cardioExercise(e)?[['duration','Duration (min)'],['distance','Distance (km)'],['speed','Speed (km/h)'],['incline','Incline (%)'],['level','Level / resistance'],['heartRate','Heart rate (bpm)']]:[['weight','Target weight (kg)'],['reps','Reps / time']];
@@ -139,12 +228,11 @@ case'newClient':{const name=promptText('Client name:');if(!name)return;const x={
 case'deleteClient':if(c&&confirm('Delete this client and associated records? Export a backup first.')){db.clients=db.clients.filter(x=>x.id!==c.id);clientId='';}break;
 case'saveClient':if(!c)return;for(const [key,field] of [['name','Name'],['email','Email'],['age','Age'],['experience','Experience'],['goals','Goals']])c[key]=document.querySelector(`[data-field="${field}"]`)?.value||'';break;
 case'saveHealth':if(!c)return;{const fields={otherConditions:'Other condition details',medication:'Medication / considerations',limitations:'Injuries / limitations',sleep:'Sleep hours (typical)',stress:'Stress level (low / medium / high)',activity:'Occupation / daily activity',days:'Days available each week',preferences:'Preferred exercise'};for(const [k,v] of Object.entries(fields))c[k]=document.querySelector(`[data-field="${v}"]`)?.value||'';c.conditions=[...document.querySelectorAll('.condition:checked')].map(x=>x.value)}break;
-case'newDraft':if(!clientId)return;db.drafts[clientId]={days:[{name:'Day 1',exercises:[]}]};tab='Programme Creator';break;
-case'loadApproved':if(!current())return alert('Select an approved programme in Edit & Print first.');db.drafts[clientId]={days:clone(current().days)};break;
+case'newDraft':if(!clientId)return;db.drafts[clientId]={structure:'Full Body',days:[{name:'Day 1',style:'Full Body',exercises:[]}]};programmeId='';tab='Programme Creator';break;
+case'loadApproved':if(!current())return alert('Select an approved programme in Edit & Print first.');db.drafts[clientId]={structure:current().structure||'Custom',days:clone(current().days)};programmeId='';break;
 case'applyStructure':{
- if(!clientId)return;const style=$('programmeStructure').value,n=Number($('programmeDays').value)||2;
- const patterns=style.includes('Push / Pull / Legs')?['Push','Pull','Legs']:style.includes('Upper / Lower')?['Upper Body','Lower Body']:style.includes('Cardio + Core')?['Cardio','Core']:style.includes('Cardio + Resistance')||style.includes('Strength + Cardio')?['Strength','Cardio']:[];
- changeDraft(x=>{x.structure=style;const old=x.days; x.days=Array.from({length:n},(_,j)=>({...old[j],name:old[j]?.name||'Day '+(j+1),style:patterns.length?patterns[j%patterns.length]:style,exercises:old[j]?.exercises||[]}))});return
+ if(!clientId)return;const style=$('programmeStructure').value,n=Math.max(1,Math.min(7,Number($('programmeDays').value)||2));
+ regenerateDraft(style,n,false);return;
 }
 case'moveDayUp':changeDraft(x=>{if(i>0)[x.days[i-1],x.days[i]]=[x.days[i],x.days[i-1]];editDay=Math.max(0,i-1)});return;
 case'moveDayDown':changeDraft(x=>{if(i<x.days.length-1)[x.days[i+1],x.days[i]]=[x.days[i],x.days[i+1]];editDay=Math.min(x.days.length-1,i+1)});return;
@@ -206,7 +294,13 @@ case'calcBMI':{const h=Number($('calcHeight').value)/100,w=Number($('calcMass').
 case'exportMini':exportMini();return;
 case'backup':download(JSON.stringify({app:'FitnessManagerRebuiltV1',exported:new Date().toISOString(),data:db},null,2),'Fitness_Manager_Backup_'+today()+'.json','application/json');return;
 case'restore':$('restoreFile').click();return;
-case'suggest':{if(!c)return;const days=Math.max(1,Math.min(5,Number(c.days)||3));const preferred=db.exercises.filter(x=>['Bodyweight','Dumbbell','Resistance Band'].includes(x.equipment)&&x.type==='Strength');draftAuto();db.drafts[clientId]={days:Array.from({length:days},(_,i)=>({name:'Day '+(i+1),exercises:preferred.slice(i*5,i*5+5).map(x=>({...clone(x),sets:2,reps:'8–12',weight:'',rest:60}))}))};tab='Programme Creator';alert('Starter draft generated. Review against individual health information and adapt before use.')}break;
+case'suggest':{
+ if(!clientId)return;
+ const draft=ensureDraft();
+ const style=$('programmeStructure')?.value||draft.structure||'Full Body';
+ const n=Math.max(1,Math.min(7,Number($('programmeDays')?.value)||draft.days.length||Number(c?.days)||3));
+ regenerateDraft(style,n,true);return;
+}
 default:return
 }await save();render();if(tab==='Workout Mode')renderWorkoutItems()}catch(err){alert('Could not complete action: '+err.message);console.error(err)}});
 document.addEventListener('change',async e=>{const el=e.target;if(el.id==='pickClient'){clientId=el.value;programmeId='';render();if(tab==='Workout Mode')renderWorkoutItems()}else if(el.id==='pickProgramme'){programmeId=el.value;render();if(tab==='Workout Mode')renderWorkoutItems()}else if(el.id==='workoutDay'){renderWorkoutItems()}else if(el.id==='miniClient'){miniClient=el.value;miniSelected=new Set(db.programmes.filter(p=>p.clientId===miniClient).map(p=>p.id));render()}else if(el.classList.contains('miniCheck')){if(el.checked)miniSelected.add(el.value);else miniSelected.delete(el.value)}else if(el.dataset.item){const [di,xi,k]=el.dataset.item.split(':');draftAuto();ensureDraft().days[+di].exercises[+xi][k]=k==='sets'||k==='rest'?Number(el.value):el.value;await save()}else if(el.id==='restoreFile'&&el.files[0]){try{const obj=JSON.parse(await el.files[0].text());if(obj.app!=='FitnessManagerRebuiltV1'||!obj.data?.clients||!obj.data?.programmes)throw Error('Not a valid rebuilt-app backup');if(confirm('Replace all current rebuilt-app data with this backup?')){db=obj.data;clientId='';programmeId='';await save();render()}}catch(err){alert('Restore failed: '+err.message)}}});

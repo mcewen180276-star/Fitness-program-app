@@ -17,3 +17,5 @@ V4: 893 total expanded catalogue entries, with tailored technique explanations. 
 V5: 22 cardio machines, 34 cardio workout methods each (748 machine-method entries); 39 programme structures; 26 day styles; reorder days and exercises; filter add-exercise by equipment and muscle. Existing local data remains.
 
 V6: Exercise Database filters by muscle/body part, equipment, and cardio/resistance/core/mobility category. Programme Creator exercises are collapsible and expand to reveal prescription, demonstration, technique and reordering. Swap exercise opens an in-page searchable/filterable panel with equipment, muscle, category and text filters, instead of prompt boxes. No database schema changes; existing saved data retained.
+
+V7: Programme structure now generates a fresh exercise-filled draft rather than retaining old exercises. Seniors/Active Ageing prioritises supported, balance, mobility and lower-impact choices. Regenerate respects per-day styles. Confirm before replacing nonempty drafts; previous draft autosaved, named approved programmes never modified.
