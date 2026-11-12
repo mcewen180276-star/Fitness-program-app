@@ -13,3 +13,5 @@ V2: A4 professional print/PDF layout, resistance weights and cardio metrics in p
 V3 restored 475 distinct curated/expanded legacy exercises from old v63 source, with descriptions and equipment. Existing rebuilt user exercises remain untouched. Demo links can be added/edited; 'Find demonstration' opens search results rather than falsely claiming a verified demo. New inline add/edit form. Equipment management retained.
 
 V4: 893 total expanded catalogue entries, with tailored technique explanations. Collapsible exercise cards with inline edit forms, demonstration links and search. Existing user-added exercise data preserved; default generic explanations improved on import.
+
+V5: 22 cardio machines, 34 cardio workout methods each (748 machine-method entries); 39 programme structures; 26 day styles; reorder days and exercises; filter add-exercise by equipment and muscle. Existing local data remains.
