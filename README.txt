@@ -27,3 +27,5 @@ V8 Programme Creator redesign:
 - Save as new creates a separate programme. Save changes updates only the explicitly loaded programme.
 - Existing exercise database, workout tracking, mini-app, and printouts remain.
 - Existing V7 data stays in the same IndexedDB store. Back up before updating.
+
+V9: sets/reps/rest/time dropdowns with range prescriptions, saved and printed across approved programmes, Workout Mode and newly exported mini-app. Ranges use the upper bound to generate recordable individual sets. Editing a saved programme and saving changes returns to Edit & Print with the updated approved version. Re-export client mini-app to receive changes.
