@@ -1,0 +1,5 @@
+{
+  "version": "50",
+  "release": "2026-11-09",
+  "features": "Client-aware and manual fitness calculators, HR reserve/maximum zones, cardio pace, estimated 1RM loads, session RPE load, zone and metric programme references, clearer client exercise links"
+}
