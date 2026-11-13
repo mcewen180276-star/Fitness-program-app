@@ -19,11 +19,11 @@ const equipmentName=x=>String(x||'').trim();
 function addExpandedLibrary(rows){
  if(!Array.isArray(rows))return 0;
  const names=new Set(db.exercises.map(e=>e.name.trim().toLowerCase()));
- const eqNames=new Set(db.equipment.map(e=>e.name.trim().toLowerCase()));
+ const eqNames=new Set(db.equipment.map(e=>canonicalEquipment(e.name).toLowerCase()));
  let count=0;
  for(const r of rows){
   if(!Array.isArray(r)||r.length<6)continue;
-  const [name,type,muscle,level,equipment,description]=r;
+  const [name,type,muscle,level,rawEquipment,description]=r;const equipment=canonicalEquipment(rawEquipment);
   if(!name)continue;
   if(names.has(name.trim().toLowerCase())){
    const existing=db.exercises.find(e=>e.name.trim().toLowerCase()===name.trim().toLowerCase());
@@ -38,6 +38,40 @@ function addExpandedLibrary(rows){
   }
  }
  return count;
+}
+const equipmentAliases={
+ 'dumbbells':'Dumbbell','dumbbell weights':'Dumbbell','dumbbell':'Dumbbell',
+ 'kettlebells':'Kettlebell','kettle bells':'Kettlebell','kettle bell':'Kettlebell',
+ 'barbells':'Barbell','barbell and rack':'Barbell','barbell / rack':'Barbell',
+ 'bands':'Resistance Band','band':'Resistance Band','resistance bands':'Resistance Band','elastic bands':'Resistance Band',
+ 'body weight':'Bodyweight','body-weight':'Bodyweight','body weight / floor':'Bodyweight',
+ 'cables':'Cable Machine','cable':'Cable Machine','cable machines':'Cable Machine',
+ 'machines':'Resistance Machine','weight machines':'Resistance Machine','resistance machines':'Resistance Machine',
+ 'medicine balls':'Medicine Ball','med ball':'Medicine Ball','slam balls':'Slam Ball',
+ 'swiss balls':'Swiss Ball','stability ball':'Swiss Ball','exercise ball':'Swiss Ball',
+ 'trx':'TRX / Suspension','suspension trainer':'TRX / Suspension','suspension training':'TRX / Suspension',
+ 'battle ropes':'Battle Rope','ab slings':'Ab Sling','tornado balls':'Tornado Ball',
+ 'plyo box':'Plyometric Box','plyo boxes':'Plyometric Box',
+ 'cardio machines':'Cardio Machine','cardio equipment':'Cardio Machine'
+};
+function canonicalEquipment(name){
+ const raw=String(name||'').trim().replace(/\s+/g,' '),key=raw.toLowerCase();
+ return equipmentAliases[key]||raw;
+}
+function dedupeEquipment(){
+ const old=db.equipment.length,merged=new Map();
+ for(const eq of db.equipment){
+  const name=canonicalEquipment(eq.name);if(!name)continue;
+  const key=name.toLowerCase();
+  if(!merged.has(key))merged.set(key,{...eq,name,quantity:Math.max(0,Number(eq.quantity)||0)});
+  else {const item=merged.get(key);item.quantity=Math.max(item.quantity,Math.max(0,Number(eq.quantity)||0));item.hidden=Boolean(item.hidden&&eq.hidden)}
+ }
+ db.equipment=[...merged.values()].sort((a,b)=>a.name.localeCompare(b.name));
+ for(const e of db.exercises)e.equipment=canonicalEquipment(e.equipment);
+ // Preserve custom exercise details and saved programme prescriptions; only normalize equipment labels.
+ for(const draft of Object.values(db.drafts||{}))for(const day of draft.days||[])for(const e of day.exercises||[])e.equipment=canonicalEquipment(e.equipment);
+ for(const plan of db.programmes||[])for(const day of plan.days||[])for(const e of day.exercises||[])e.equipment=canonicalEquipment(e.equipment);
+ return old-db.equipment.length;
 }
 const fresh=()=>({schema:1,clients:[],equipment:categories.map(name=>({id:uid(),name,quantity:1,hidden:false})),exercises:seeds.map(([name,equipment,muscle,type])=>({id:uid(),name,equipment,muscle,type,description:'',url:''})),programmes:[],drafts:{},autosaves:{},templates:[],records:[],challenges:[]});
 let db=fresh(),tab='Clients',clientId='',programmeId='',editDay=0,search='',eqFilter='',muscleFilter='',kindFilter='',miniClient='',miniSelected=new Set(),swapTarget=null,swapFilters={equipment:'',muscle:'',kind:'',search:''};
@@ -90,7 +124,7 @@ function viewExercises(){
  <div class="row">${e.url?`<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">▶ Open demonstration</a>`:''}<a href="${findDemo(e)}" target="_blank" rel="noopener noreferrer">Search for demo</a></div>
  <div class="row"><button data-action="editExercise" data-id="${e.id}">Edit details & link</button><button data-action="duplicateExercise" data-id="${e.id}">Duplicate</button><button data-action="deleteExercise" data-id="${e.id}" class="danger">Delete</button></div>
  <div class="inlineEditorSlot"></div></div></details>`).join('')}${filtered.length>160?'<p class="muted">Showing the first 160 matches. Search or filter to narrow the list.</p>':''}</div></div>
- <details class="panel"><summary>Equipment manager (${db.equipment.length})</summary><div class="row"><button data-action="addEquipment" class="primary">+ Add equipment</button><button data-action="showAllEquipment">Show all</button></div>${equipment.map(e=>`<div class="entry"><b>${esc(e.name)}</b> · Quantity ${e.quantity} · ${e.hidden?'Hidden':'Visible'} <button data-action="editEquipment" data-id="${e.id}">Edit name / quantity</button><button data-action="toggleEquipment" data-id="${e.id}">${e.hidden?'Show':'Hide'}</button></div>`).join('')}</details>`;
+ <details class="panel"><summary>Equipment manager (${db.equipment.length})</summary><div class="row"><button data-action="addEquipment" class="primary">+ Add equipment</button><button data-action="showAllEquipment">Show all</button><button data-action="dedupeEquipment">Merge duplicate equipment</button></div>${equipment.map(e=>`<div class="entry"><b>${esc(e.name)}</b> · Quantity ${e.quantity} · ${e.hidden?'Hidden':'Visible'} <button data-action="editEquipment" data-id="${e.id}">Edit name / quantity</button><button data-action="toggleEquipment" data-id="${e.id}">${e.hidden?'Show':'Hide'}</button></div>`).join('')}</details>`;
 }
 function openExerciseEditor(id){
  const e=db.exercises.find(x=>x.id===id)||{id:'',name:'',equipment:db.equipment.find(x=>!x.hidden)?.name||'Bodyweight',muscle:'',type:'Strength',level:'Beginner',description:'',url:''};
@@ -206,8 +240,8 @@ function viewCreator(){
  <label>Default rest<select id="creatorRest">${dropdownOptions(restChoices,d.defaultRest??60,'sec')}</select></label>
  <label>Cardio in programme<select id="creatorCardio"><option value="yes" ${(d.includeCardio??true)?'selected':''}>Include cardio where appropriate</option><option value="no" ${d.includeCardio===false?'selected':''}>No additional cardio</option></select></label>
  <label>Cardio method<select id="creatorCardioMethod">${optionList(cardioMethods,d.cardioMethod||'Steady State')}</select></label>
- </div><button data-action="creatorGenerate" class="primary">Generate programme</button><p class="tiny muted">Creates a fresh working draft using the selected structure, exercise count, time and equipment availability. Does not overwrite saved programmes.</p></div>
- <div class="panel"><h3>3. Review each workout day</h3><p class="muted">Choose a different training style for each day, then tap <b>Apply style to this day</b> to replace only that day's exercises. You can also reorder, swap, add and edit individual exercises.</p></div>${dayEditor(d)}
+ </div><button data-action="creatorGenerate" class="primary">Generate programme</button><button data-action="creatorSmartGenerate">Intelligent generator (offline)</button><details><summary>How does intelligent generation work?</summary><p class="muted">Uses client goals, experience, preferred activity, days available, chosen structure, available equipment and exercise categories. It is a local rules-based planner, not a cloud AI model. Always review the programme before giving it to a client.</p></details><p class="tiny muted">Creates a fresh working draft using the selected structure, exercise count, time and equipment availability. Does not overwrite saved programmes.</p></div>
+ ${d.generatorRationale?`<div class="panel"><h3>Generator explanation</h3><p>${esc(d.generatorRationale)}</p><p class="muted">${esc(d.generatorReview||'')}</p></div>`:''}<div class="panel"><h3>3. Review each workout day</h3><p class="muted">Choose a different training style for each day, then tap <b>Apply style to this day</b> to replace only that day's exercises. You can also reorder, swap, add and edit individual exercises.</p></div>${dayEditor(d)}
  <div class="panel"><h3>4. Save programme</h3><div class="row"><button data-action="saveApproved" class="primary">Save as new programme</button>${d.editingProgrammeId?'<button data-action="creatorSaveChanges">Save changes to loaded programme</button>':''}</div><p class="tiny muted">Saving as new creates a separate named and dated programme. Save changes updates only the programme you deliberately loaded.</p></div>`}`;
 }
 function creatorOptions(){
@@ -256,6 +290,25 @@ function makeDayExercises(style,structure,opts,used=new Set()){
   if(cardio)result[result.length-1]=cardio;
  }
  return result.map(e=>exerciseForDay(e,opts,senior));
+}
+function intelligentProgrammeOptions(opts){
+ const c=client()||{},goal=String(c.goals||'').toLowerCase(),experience=String(c.experience||'').toLowerCase(),prefs=String(c.preferences||'').toLowerCase();
+ const adjusted={...opts};
+ if(/senior|older|balance|mobility|low impact/.test(goal+' '+prefs))adjusted.structure='Seniors / Active Ageing';
+ else if(/weight loss|fat loss|cardio|endurance|aerobic/.test(goal)&&/full body|custom/i.test(opts.structure))adjusted.structure='Cardio + Resistance';
+ else if(/muscle|hypertrophy|size/.test(goal)&&/full body|custom/i.test(opts.structure))adjusted.structure='Muscle Building';
+ else if(/strength|power/.test(goal)&&/full body|custom/i.test(opts.structure))adjusted.structure='Strength';
+ if(/beginner|new|novice/.test(experience)){adjusted.sets='2';adjusted.reps='10–12';adjusted.rest=Math.max(60,adjusted.rest)}
+ if(/advanced|experienced/.test(experience)){adjusted.sets=adjusted.sets||'3–4'}
+ const availableDays=Number(c.days);if(Number.isFinite(availableDays)&&availableDays>=1&&availableDays<=7)adjusted.days=Math.min(adjusted.days,availableDays);
+ return adjusted;
+}
+function buildIntelligentDraft(opts){
+ const settings=intelligentProgrammeOptions(opts),draft=createProgrammeDraft(settings),c=client()||{};
+ draft.generator='offline-intelligent';
+ draft.generatorRationale=`Goals: ${c.goals||'not provided'}; experience: ${c.experience||'not provided'}; workout: ${settings.structure}; ${settings.days} day(s); ${settings.count} exercises/day. Available equipment only; review for individual suitability.`;
+ draft.generatorReview='Review each exercise, technique, intensity and any health or injury considerations before prescribing.';
+ return draft;
 }
 function createProgrammeDraft(opts){
  const pattern=programmePattern(opts.structure,opts.days),used=new Set();
@@ -350,6 +403,16 @@ case'creatorLoad':{
  exerciseCount:saved.exerciseCount||6,duration:saved.duration||45,defaultSets:saved.defaultSets||'3',defaultReps:saved.defaultReps||'8–12',defaultRest:saved.defaultRest??60,includeCardio:saved.includeCardio??true,cardioMethod:saved.cardioMethod||'Steady State'};
  programmeId='';editDay=0;break;
 }
+case'creatorSmartGenerate':{
+ if(!clientId)return alert('Select a client first.');
+ const opts=creatorOptions();
+ if(d?.days?.some(day=>day.exercises.length)&&!confirm('Replace this working draft with a new intelligently generated draft? Saved programmes are not changed.'))return;
+ draftAuto();db.drafts[clientId]=buildIntelligentDraft(opts);programmeId='';editDay=0;break;
+}
+case'dedupeEquipment':{
+ if(!confirm('Merge equivalent equipment labels? Quantities will use the highest existing quantity rather than adding duplicates. Exercise links will be preserved.'))return;
+ const count=dedupeEquipment();alert(`Equipment cleanup complete. ${count} duplicate entries merged.`);break;
+}
 case'creatorGenerate':{
  if(!clientId)return alert('Select a client first.');
  const opts=creatorOptions();
@@ -400,8 +463,8 @@ case'restoreAuto':if(!c)return;db.drafts[c.id]={days:clone(db.autosaves[c.id][i]
 case'editApproved':if(!current())return;db.drafts[clientId]={structure:current().structure||'Custom',days:clone(current().days),editingProgrammeId:current().id,defaultSets:current().defaultSets||'3',defaultReps:current().defaultReps||'8–12',defaultRest:current().defaultRest??60,duration:current().duration||45};tab='Programme Creator';break;
 case'renameApproved':if(!current())return;{const n=promptText('Programme name:',current().name),date=promptText('Date (YYYY-MM-DD):',current().date);if(!n||!date)return;if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert('Invalid date');current().name=n;current().date=date}break;
 case'print':window.print();return;
-case'addEquipment':{const name=promptText('Equipment name:');if(!name)return;db.equipment.push({id:uid(),name,quantity:1,hidden:false})}break;
-case'editEquipment':{const x=db.equipment.find(e=>e.id===id);if(!x)return;const n=promptText('Equipment name:',x.name),q=promptText('Quantity:',x.quantity);if(n===null||q===null)return;x.name=n;x.quantity=Math.max(0,Number(q)||0)}break;
+case'addEquipment':{const input=promptText('Equipment name:');if(!input)return;const name=canonicalEquipment(input);const existing=db.equipment.find(e=>canonicalEquipment(e.name).toLowerCase()===name.toLowerCase());if(existing){alert('This equipment already exists: '+existing.name+'. Edit its quantity instead.');return}db.equipment.push({id:uid(),name,quantity:1,hidden:false})}break;
+case'editEquipment':{const x=db.equipment.find(e=>e.id===id);if(!x)return;const n=promptText('Equipment name:',x.name),q=promptText('Quantity:',x.quantity);if(n===null||q===null)return;x.name=canonicalEquipment(n);x.quantity=Math.max(0,Number(q)||0);dedupeEquipment()}break;
 case'toggleEquipment':{const x=db.equipment.find(e=>e.id===id);x.hidden=!x.hidden}break;
 case'addExercise':openExerciseEditor('');return;
 case'editExercise':openExerciseEditor(id);return;
@@ -504,8 +567,9 @@ document.addEventListener('change',async e=>{const el=e.target;if(el.id==='pickC
 document.addEventListener('input',e=>{if(e.target.id==='swapSearch'){swapFilters.search=e.target.value;updateSwapResults();return;}if(e.target.dataset.filterday!==undefined){refreshDayExerciseChoices(Number(e.target.dataset.filterday));return;}if(e.target.id==='exerciseSearch'){search=e.target.value;const pos=e.target.selectionStart;render();$('exerciseSearch')?.focus();$('exerciseSearch')?.setSelectionRange(pos,pos)}});
 document.addEventListener('change',e=>{if(['swapEquipment','swapMuscle','swapKind'].includes(e.target.id)){swapFilters[{swapEquipment:'equipment',swapMuscle:'muscle',swapKind:'kind'}[e.target.id]]=e.target.value;updateSwapResults();return;}if(e.target.id==='muscleFilter'){muscleFilter=e.target.value;render();return;}if(e.target.id==='kindFilter'){kindFilter=e.target.value;render();return;}if(e.target.dataset.filterday!==undefined){refreshDayExerciseChoices(Number(e.target.dataset.filterday));return;}if(e.target.id==='equipmentFilter'){eqFilter=e.target.value;render()}if(e.target.classList.contains('condition')&&['None','Not disclosed'].includes(e.target.value)&&e.target.checked){document.querySelectorAll('.condition').forEach(x=>{if(x!==e.target)x.checked=false})}else if(e.target.classList.contains('condition')&&e.target.checked){document.querySelectorAll('.condition').forEach(x=>{if(['None','Not disclosed'].includes(x.value))x.checked=false})}});
 (async()=>{try{db=await read()||fresh();db.autosaves ||= {};db.drafts ||= {};db.challenges ||= [];db.records ||= [];db.templates ||= [];db.programmes ||= [];db.clients ||= [];db.exercises ||= [];db.equipment ||= [];
- if(!db.expandedLibraryV5){
-  try{const rows=await fetch('./expanded-library.json').then(r=>r.json());const added=addExpandedLibrary(rows);db.expandedLibraryV5=true;await save();console.info('Expanded library imported',added)}
+ if(!db.expandedLibraryV11){
+  try{const rows=await fetch('./expanded-library.json').then(r=>r.json());const added=addExpandedLibrary(rows);db.expandedLibraryV11=true;await save();console.info('Expanded library imported',added)}
   catch(err){console.warn('Expanded exercise library will retry on next launch',err)}
  }
+  const merged=dedupeEquipment();if(merged)await save();
  }catch(err){alert('Local storage unavailable: '+err.message)}render();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn)})();
